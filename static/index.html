@@ -1,0 +1,1018 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>בונה הזמנות ייצור</title>
+<script src="https://cdn.tailwindcss.com/3.4.1"></script>
+<style>
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: #f1f5f9; }
+  .status-open    { background:#dcfce7; color:#166534; border:1px solid #86efac; }
+  .status-locked  { background:#fef9c3; color:#854d0e; border:1px solid #fde047; }
+  .status-closed  { background:#f1f5f9; color:#475569; border:1px solid #cbd5e1; }
+  .badge { display:inline-block; padding:2px 10px; border-radius:999px; font-size:.78rem; font-weight:600; }
+  .btn-primary   { background:#4f46e5; color:#fff; border-radius:8px; padding:8px 18px; font-weight:600; cursor:pointer; border:none; transition:background .15s; }
+  .btn-primary:hover   { background:#4338ca; }
+  .btn-secondary { background:#e2e8f0; color:#334155; border-radius:8px; padding:8px 18px; font-weight:600; cursor:pointer; border:none; }
+  .btn-secondary:hover { background:#cbd5e1; }
+  .btn-sm        { padding:4px 12px; font-size:.82rem; border-radius:6px; cursor:pointer; border:none; font-weight:600; }
+  .btn-ghost     { background:transparent; color:#6366f1; font-weight:600; cursor:pointer; border:none; font-size:.9rem; }
+  .btn-ghost:hover { text-decoration:underline; }
+  .card { background:#fff; border-radius:12px; box-shadow:0 1px 4px rgba(0,0,0,.08); }
+  input, select, textarea { border:1px solid #cbd5e1; border-radius:8px; padding:6px 10px; font-size:.95rem; outline:none; transition:border .15s; background:#fff; }
+  input:focus, select:focus { border-color:#6366f1; box-shadow:0 0 0 3px #e0e7ff; }
+  input[type=number] { width:80px; text-align:center; }
+  .section-header { font-size:.7rem; font-weight:700; color:#94a3b8; text-transform:uppercase; letter-spacing:.07em; }
+  .type-badge { font-size:.68rem; font-weight:700; padding:1px 7px; border-radius:999px; white-space:nowrap; }
+  .type-קרטון       { background:#dbeafe; color:#1e40af; }
+  .type-מדבקה       { background:#fce7f3; color:#9d174d; }
+  .type-קרטוניות    { background:#ede9fe; color:#5b21b6; }
+  .type-שקית        { background:#e0f2fe; color:#075985; }
+  .type-ספוג        { background:#dcfce7; color:#166534; }
+  .type-מייקרופייבר { background:#f0fdf4; color:#14532d; }
+  .type-כרית        { background:#fef3c7; color:#92400e; }
+  .type-גלילים      { background:#fff7ed; color:#9a3412; }
+  .type-בד          { background:#f5f3ff; color:#4c1d95; }
+  .type-אחר         { background:#f1f5f9; color:#475569; }
+  .row-hover:hover  { background:#f8fafc; }
+  .modal-back { position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:50;display:flex;align-items:center;justify-content:center;padding:16px; }
+  .modal-box  { background:#fff;border-radius:16px;max-width:620px;width:100%;max-height:90vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.25); }
+  .modal-header { padding:16px 20px; border-bottom:1px solid #e2e8f0; display:flex; align-items:center; justify-content:space-between; flex-shrink:0; }
+  .modal-body   { padding:20px; overflow-y:auto; flex:1; }
+  .modal-footer { padding:12px 20px; border-top:1px solid #e2e8f0; display:flex; justify-content:flex-end; gap:8px; flex-shrink:0; }
+  .qty-btn { width:28px;height:28px;border-radius:6px;border:1px solid #cbd5e1;background:#f8fafc;cursor:pointer;font-size:1rem;line-height:1;display:flex;align-items:center;justify-content:center; }
+  .qty-btn:hover { background:#e2e8f0; }
+  @media(max-width:640px){
+    .hide-mobile{display:none!important;}
+    .modal-box{border-radius:16px 16px 0 0;max-height:95vh;}
+    .modal-back{align-items:flex-end;padding:0;}
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast-wrap" style="position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:999;pointer-events:none;"></div>
+
+<script>
+// ─── State ────────────────────────────────────────────────────────────────────
+let state = {
+  user: null,
+  view: 'login',           // login | dashboard | order-editor | product-picker | product-detail | history | wh-orders | wh-order-detail
+  subcontractors: [],
+  customers: [],
+  currentOrder: null,
+  orderList: [],
+  // product picker
+  picker: { customer: '', q: '', results: [] },
+  // product detail (BOM view before adding to order)
+  productDetail: { product: null, bom: [], quantity: 1, overrides: {} },
+  productDetailMode: 'new',  // 'new' | 'edit'
+  // free item modal
+  freeModal: { open: false, name: '', quantity: 1, unit: 'יח\'', category: 'מוצרי אריזה', note: '', editId: null },
+  // close order modal
+  closeModal: { open: false, sent: {} },
+  // wh
+  whSortMode: 'type',
+};
+
+// ─── API ──────────────────────────────────────────────────────────────────────
+async function api(method, path, body) {
+  const opts = { method, headers: {'Content-Type':'application/json'} };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  const res = await fetch(path, opts);
+  if (!res.ok) {
+    const err = await res.json().catch(()=>({detail:'שגיאה'}));
+    throw new Error(err.detail || 'שגיאה');
+  }
+  return res.json().catch(()=>null);
+}
+
+function toast(msg, type='ok') {
+  const w = document.getElementById('toast-wrap');
+  const color = type==='err' ? '#ef4444' : '#22c55e';
+  w.innerHTML = `<div style="background:${color};color:#fff;padding:10px 22px;border-radius:999px;font-weight:600;box-shadow:0 4px 16px rgba(0,0,0,.2);">${msg}</div>`;
+  setTimeout(()=>{ w.innerHTML=''; }, 3000);
+}
+
+// ─── Router ───────────────────────────────────────────────────────────────────
+async function go(view, opts={}) {
+  if (view === 'dashboard') await loadDashboard();
+  if (view === 'history')   await loadHistory();
+  if (view === 'wh-orders') await loadWhOrders();
+  state.view = view;
+  render();
+}
+
+// ─── Render ───────────────────────────────────────────────────────────────────
+function render() {
+  const app = document.getElementById('app');
+  if (state.view === 'login') { app.innerHTML = renderLogin(); return; }
+
+  const nav = renderNav();
+  let body = '';
+  switch(state.view) {
+    case 'dashboard':       body = renderDashboard(); break;
+    case 'order-editor':    body = renderOrderEditor(); break;
+    case 'product-picker':  body = renderProductPicker(); break;
+    case 'product-detail':  body = renderProductDetail(); break;
+    case 'history':         body = renderHistory(); break;
+    case 'wh-orders':       body = renderWhOrders(); break;
+    case 'wh-order-detail': body = renderWhOrderDetail(); break;
+  }
+  app.innerHTML = nav + `<main class="max-w-4xl mx-auto px-4 py-5">${body}</main>`;
+
+  // modals on top — clear old ones first to avoid duplicates
+  document.querySelectorAll('.modal-back').forEach(el=>el.remove());
+  if (state.freeModal.open) document.body.insertAdjacentHTML('beforeend', renderFreeModal());
+  if (state.closeModal.open) document.body.insertAdjacentHTML('beforeend', renderCloseModal());
+}
+
+function renderNav() {
+  const isProd = state.user.role === 'production';
+  const links = isProd
+    ? [['dashboard','הזמנות'],['history','היסטוריה']]
+    : [['wh-orders','הזמנות'],['history','היסטוריה']];
+  return `
+  <header class="bg-white border-b border-slate-200 px-4 py-2.5 flex items-center justify-between sticky top-0 z-40">
+    <div class="flex items-center gap-2">
+      <div class="w-7 h-7 rounded-full bg-indigo-600 text-white text-xs font-bold flex items-center justify-center">${state.user.name[0]}</div>
+      <span class="font-semibold text-sm text-slate-700">${state.user.name}</span>
+    </div>
+    <nav class="flex gap-1">
+      ${links.map(([v,label])=>`<button onclick="go('${v}')" class="text-sm px-3 py-1.5 rounded-lg font-medium transition-colors ${state.view===v||state.view.startsWith(v.replace('-orders',''))?'bg-indigo-50 text-indigo-700':'text-slate-500 hover:bg-slate-100'}">${label}</button>`).join('')}
+      <button onclick="logout()" class="text-xs text-slate-400 hover:text-red-400 px-2 mr-1">יציאה</button>
+    </nav>
+  </header>`;
+}
+
+// ─── Login ────────────────────────────────────────────────────────────────────
+function renderLogin() {
+  return `
+  <div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 to-slate-100 p-4">
+    <div class="card p-8 w-full max-w-xs">
+      <div class="text-center mb-6">
+        <div class="w-14 h-14 bg-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4 text-white text-2xl">📋</div>
+        <h1 class="text-xl font-bold text-slate-800">בונה הזמנות ייצור</h1>
+      </div>
+      <form onsubmit="doLogin(event)">
+        <input type="password" id="pin" placeholder="קוד כניסה" class="w-full text-center text-xl tracking-widest mb-4" autofocus>
+        <button type="submit" class="btn-primary w-full py-2.5">כניסה</button>
+        <div id="login-err" class="text-red-500 text-sm text-center mt-2 hidden"></div>
+      </form>
+    </div>
+  </div>`;
+}
+
+async function doLogin(e) {
+  e.preventDefault();
+  const pin = document.getElementById('pin').value;
+  try {
+    state.user = await api('POST', '/api/login', {pin});
+    if (state.user.role === 'production') await go('dashboard');
+    else await go('wh-orders');
+  } catch(err) {
+    const el = document.getElementById('login-err');
+    el.textContent = err.message; el.classList.remove('hidden');
+  }
+}
+function logout() { state.user=null; state.currentOrder=null; state.view='login'; render(); }
+
+// ─── Dashboard ────────────────────────────────────────────────────────────────
+async function loadDashboard() {
+  [state.subcontractors, state.customers] = await Promise.all([
+    api('GET','/api/subcontractors'), api('GET','/api/customers')
+  ]);
+}
+
+function renderDashboard() {
+  return `
+  <h2 class="text-lg font-bold text-slate-800 mb-4">קבלני משנה</h2>
+  <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+    ${state.subcontractors.map(s=>`
+    <div class="card p-5 cursor-pointer hover:shadow-md transition-shadow" onclick="openSub(${s.id})">
+      <div class="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-700 font-bold text-xl flex items-center justify-center mb-3">${s.name[0]}</div>
+      <div class="font-bold text-slate-800">${s.name}</div>
+      <div class="text-sm text-slate-500 mt-0.5">${s.address}</div>
+      <div class="text-xs text-indigo-600 font-semibold mt-3">לחץ לפתיחה →</div>
+    </div>`).join('')}
+  </div>`;
+}
+
+async function openSub(subId) {
+  try {
+    const order = await api('GET', `/api/orders/active/${subId}`);
+    if (order) {
+      state.currentOrder = order;
+    } else {
+      if (!confirm('אין הזמנה פתוחה. לפתוח הזמנה חדשה?')) return;
+      state.currentOrder = await api('POST', '/api/orders', {subcontractor_id: subId});
+    }
+    state.view = 'order-editor'; render();
+  } catch(err) { toast(err.message, 'err'); }
+}
+
+// ─── Order Editor ─────────────────────────────────────────────────────────────
+function renderOrderEditor() {
+  const o = state.currentOrder;
+  const isOpen = o.status === 'open';
+  const isLocked = o.status === 'locked';
+  const statusLabel = {open:'פתוח',locked:'נעול',closed:'סגור'}[o.status];
+
+  return `
+  <!-- header -->
+  <div class="flex items-center gap-2 mb-4 flex-wrap">
+    <button onclick="go('dashboard')" class="text-slate-400 hover:text-slate-600 text-sm">← חזרה</button>
+    <div class="flex-1">
+      <span class="font-bold text-slate-800">הזמנה #${o.order_number}</span>
+      <span class="text-slate-400 mx-1">·</span>
+      <span class="text-slate-600">${o.sub_name}</span>
+      <span class="text-xs text-slate-400 mr-2">${fmtDate(o.created_at)}</span>
+    </div>
+    <span class="badge status-${o.status}">${statusLabel}</span>
+  </div>
+
+  <!-- products -->
+  <div class="card mb-4">
+    <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+      <span class="font-semibold text-slate-700">מוצרים להזמנה</span>
+      ${isOpen ? `<button onclick="go('product-picker')" class="btn-primary btn-sm">+ הוסף מוצר</button>` : ''}
+    </div>
+    ${o.products.length===0 ? `<div class="px-4 py-6 text-center text-slate-400 text-sm">לא נוספו מוצרים</div>` : ''}
+    ${o.products.map(p=>`
+    <div class="flex items-center gap-3 px-4 py-3 border-b border-slate-100 row-hover">
+      <div class="flex-1 min-w-0">
+        <div class="font-medium text-slate-800 text-sm leading-tight">${p.product_name}</div>
+        <div class="text-xs text-slate-400">${p.customer} · #${p.product_id}</div>
+      </div>
+      ${isOpen ? `
+        <div class="flex items-center gap-1 shrink-0">
+          <button class="qty-btn" onclick="changeProductQty('${p.product_id}',${p.quantity}-1)">−</button>
+          <input type="number" value="${p.quantity}" min="1"
+            onchange="changeProductQty('${p.product_id}',+this.value)"
+            style="width:56px">
+          <button class="qty-btn" onclick="changeProductQty('${p.product_id}',${p.quantity}+1)">+</button>
+        </div>
+        <button onclick="openProductDetail('${p.product_id}')" title="עריכה" class="text-indigo-400 hover:text-indigo-600 text-sm px-1">✏️</button>
+        <button onclick="removeProduct('${p.product_id}')" class="text-red-300 hover:text-red-500 text-lg px-1">×</button>
+      ` : `<span class="font-semibold text-slate-700 shrink-0">${p.quantity}</span>`}
+    </div>`).join('')}
+  </div>
+
+  <!-- free items / packaging -->
+  <div class="card mb-4">
+    <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+      <span class="font-semibold text-slate-700">מוצרי אריזה ופריטים כלליים</span>
+      ${isOpen ? `<button onclick="openFreeModal()" class="btn-secondary btn-sm">+ הוסף פריט</button>` : ''}
+    </div>
+    ${(!o.free_items||o.free_items.length===0) ? `<div class="px-4 py-4 text-center text-slate-400 text-sm">לא נוספו פריטים כלליים</div>` : ''}
+    ${(o.free_items||[]).map(fi=>`
+    <div class="flex items-center gap-3 px-4 py-3 border-b border-slate-100 row-hover">
+      <div class="flex-1 min-w-0">
+        <div class="text-sm font-medium text-slate-800">${fi.name}</div>
+        ${fi.note ? `<div class="text-xs text-slate-400">${fi.note}</div>` : ''}
+      </div>
+      <span class="text-sm font-semibold text-slate-700 shrink-0">${fmt(fi.quantity)} ${fi.unit||''}</span>
+      ${isOpen ? `
+        <button onclick="openFreeModal(${fi.id},'${escJs(fi.name)}',${fi.quantity},'${escJs(fi.unit||'')}','${escJs(fi.category||'')}','${escJs(fi.note||'')}')" class="text-indigo-400 hover:text-indigo-600 text-sm px-1">✏️</button>
+        <button onclick="deleteFreeItem(${fi.id})" class="text-red-300 hover:text-red-500 text-lg px-1">×</button>
+      ` : ''}
+    </div>`).join('')}
+  </div>
+
+  <!-- components summary -->
+  <div class="card mb-4">
+    <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+      <span class="font-semibold text-slate-700">סיכום חומרי גלם</span>
+      <span class="text-xs text-slate-400">${o.components.length} פריטים</span>
+    </div>
+    ${renderComponentsTable(o.components, isOpen)}
+  </div>
+
+  <!-- actions -->
+  ${isOpen ? `
+  <div class="flex justify-end">
+    <button onclick="confirmLock()" class="btn-secondary">שלח לליקוט — נעל הזמנה</button>
+  </div>
+  ` : isLocked ? `
+  <div class="card p-4 bg-amber-50 border border-amber-200">
+    <div class="font-semibold text-amber-800 mb-1">ממתינה לליקוט</div>
+    <div class="text-sm text-amber-700 mb-3">לאחר שמנהל המחסן יסיים, הכנס כאן מה נשלח בפועל</div>
+    <div class="flex gap-2 flex-wrap">
+      <button onclick="openCloseModal()" class="btn-primary">סגור הזמנה — הזן מה נשלח</button>
+      ${state.user.role==='production' ? `<button onclick="confirmUnlock()" class="btn-secondary">פתח מחדש לעריכה</button>` : ''}
+    </div>
+  </div>
+  ` : `<div class="text-sm text-slate-500 text-center">הזמנה סגורה · ${fmtDate(o.closed_at)}</div>`}`;
+}
+
+function renderComponentsTable(components, editable) {
+  let rows = '';
+  for (const c of components) {
+    if (c.quantity_final === 0 && !editable) continue;
+    if (c.quantity_final === 0 && !c.is_manual) {
+      rows += `<tr class="opacity-40 bg-slate-50">
+        <td class="px-3 py-2"><span class="type-badge type-${c.component_type}">${c.component_type}</span></td>
+        <td class="px-3 py-2 text-slate-500 font-mono text-xs">${c.component_id}</td>
+        <td class="px-3 py-2 text-slate-400 line-through text-sm">${c.component_name}</td>
+        <td class="px-3 py-2 text-left">
+          ${editable ? `<button class="text-xs text-indigo-500 hover:text-indigo-700 whitespace-nowrap" onclick="resetAdj('${c.component_id}')">שחזר</button>` : ''}
+        </td>
+      </tr>`;
+      continue;
+    }
+    const isAdj = c.quantity_adjusted !== null;
+    const qtyCell = c.is_manual
+      ? `<input type="text" placeholder="הזן ידנית" value="${escHtml(c.manual_note||'')}"
+           ${!editable?'disabled':''} onblur="saveManualNote('${c.component_id}',this.value)"
+           style="width:100px;font-size:.82rem">`
+      : `<div class="flex items-center gap-1 justify-start">
+          ${editable ? `<button class="qty-btn" onclick="nudgeAdj('${c.component_id}',${c.quantity_final},${c.rounding||1},-1)">−</button>` : ''}
+          <span class="font-bold text-slate-900 px-1 tabular-nums ${isAdj&&editable?'text-amber-600':''}" style="min-width:48px;text-align:center">${fmt(c.quantity_final)}</span>
+          ${editable ? `<button class="qty-btn" onclick="nudgeAdj('${c.component_id}',${c.quantity_final},${c.rounding||1},1)">+</button>` : ''}
+          ${c.unit ? `<span class="text-xs text-slate-400 mr-1">${c.unit}</span>` : ''}
+          ${editable && isAdj ? `<button class="text-xs text-slate-400 hover:text-slate-600" onclick="resetAdj('${c.component_id}')" title="איפוס">↺</button>` : ''}
+          ${editable ? `<button class="text-slate-300 hover:text-red-500 text-xs mr-1" onclick="removeComponent('${c.component_id}')" title="הסר">✕</button>` : ''}
+        </div>`;
+    rows += `<tr class="border-b border-slate-100 hover:bg-slate-50">
+      <td class="px-3 py-2.5 whitespace-nowrap"><span class="type-badge type-${c.component_type}">${c.component_type}</span></td>
+      <td class="px-3 py-2.5 font-mono font-semibold text-slate-700 text-sm whitespace-nowrap">${c.component_id}</td>
+      <td class="px-3 py-2.5 text-slate-800 text-sm">${c.component_name}</td>
+      <td class="px-3 py-2.5">${qtyCell}</td>
+    </tr>`;
+  }
+  if (!rows) return '<div class="px-4 py-4 text-center text-slate-400 text-sm">ייחושב לאחר הוספת מוצרים</div>';
+  return `<div class="overflow-x-auto">
+    <table class="w-full text-sm border-collapse">
+      <thead>
+        <tr class="border-b-2 border-slate-200 bg-slate-50 text-right">
+          <th class="px-3 py-2 text-xs font-semibold text-slate-500 whitespace-nowrap">סוג</th>
+          <th class="px-3 py-2 text-xs font-semibold text-slate-500 whitespace-nowrap">מק״ט</th>
+          <th class="px-3 py-2 text-xs font-semibold text-slate-500">שם</th>
+          <th class="px-3 py-2 text-xs font-semibold text-slate-500 whitespace-nowrap">כמות</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+}
+
+async function changeProductQty(productId, qty) {
+  if (qty < 1) return;
+  try {
+    state.currentOrder = await api('POST', `/api/orders/${state.currentOrder.id}/products`,
+      {product_id: productId, quantity: qty});
+    render();
+  } catch(err) { toast(err.message,'err'); }
+}
+
+async function removeProduct(productId) {
+  if (!confirm('להסיר מוצר מההזמנה?')) return;
+  try {
+    state.currentOrder = await api('DELETE', `/api/orders/${state.currentOrder.id}/products/${productId}`);
+    render();
+  } catch(err) { toast(err.message,'err'); }
+}
+
+async function nudgeAdj(componentId, current, rounding, dir) {
+  const step = rounding || 1;
+  const newQty = Math.max(0, current + dir * step);
+  try {
+    state.currentOrder = await api('PUT', `/api/orders/${state.currentOrder.id}/adjustments`,
+      {component_id: componentId, quantity_adjusted: newQty});
+    render();
+  } catch(err) { toast(err.message,'err'); }
+}
+
+async function resetAdj(componentId) {
+  try {
+    state.currentOrder = await api('PUT', `/api/orders/${state.currentOrder.id}/adjustments`,
+      {component_id: componentId, quantity_adjusted: null});
+    render();
+  } catch(err) { toast(err.message,'err'); }
+}
+
+async function removeComponent(componentId) {
+  try {
+    state.currentOrder = await api('PUT', `/api/orders/${state.currentOrder.id}/adjustments`,
+      {component_id: componentId, quantity_adjusted: 0});
+    render();
+  } catch(err) { toast(err.message,'err'); }
+}
+
+async function saveManualNote(componentId, note) {
+  try {
+    await api('PUT', `/api/orders/${state.currentOrder.id}/adjustments`,
+      {component_id: componentId, manual_note: note});
+  } catch(err) { toast(err.message,'err'); }
+}
+
+async function confirmLock() {
+  if (!confirm('לנעול הזמנה ולשלוח לליקוט?')) return;
+  try {
+    state.currentOrder = await api('POST', `/api/orders/${state.currentOrder.id}/lock`);
+    toast('הזמנה נעולה');
+    render();
+  } catch(err) { toast(err.message,'err'); }
+}
+
+async function confirmUnlock() {
+  if (!confirm('לפתוח מחדש את ההזמנה לעריכה?')) return;
+  try {
+    state.currentOrder = await api('POST', `/api/orders/${state.currentOrder.id}/unlock`);
+    toast('הזמנה פתוחה לעריכה');
+    render();
+  } catch(err) { toast(err.message,'err'); }
+}
+
+// ─── Product Picker ───────────────────────────────────────────────────────────
+function renderProductPicker() {
+  const { customer, q, results } = state.picker;
+  const customerOpts = state.customers.map(c=>
+    `<option value="${escHtml(c)}" ${c===customer?'selected':''}>${c}</option>`).join('');
+  const inOrder = new Set((state.currentOrder?.products||[]).map(p=>p.product_id));
+
+  return `
+  <div class="flex items-center gap-2 mb-4">
+    <button onclick="state.view='order-editor';render()" class="text-slate-400 hover:text-slate-600 text-sm">← חזרה להזמנה</button>
+  </div>
+  <div class="card">
+    <div class="px-4 py-3 border-b border-slate-100">
+      <h3 class="font-semibold text-slate-800 mb-3">בחר מוצר</h3>
+      <div class="flex gap-2">
+        <div class="flex-1">
+          <div class="section-header mb-1">לקוח</div>
+          <select onchange="state.picker.customer=this.value;loadPickerProducts()" class="w-full">
+            <option value="">כל הלקוחות</option>
+            ${customerOpts}
+          </select>
+        </div>
+        <div class="flex-1">
+          <div class="section-header mb-1">חיפוש חופשי</div>
+          <input type="text" placeholder="שם / מקט..." value="${escHtml(q)}"
+            oninput="state.picker.q=this.value;loadPickerProducts()" class="w-full">
+        </div>
+      </div>
+    </div>
+    <div id="picker-list">
+      ${renderPickerList(results, inOrder)}
+    </div>
+  </div>`;
+}
+
+function renderPickerList(products, inOrder) {
+  if (!products.length && (state.picker.customer||state.picker.q))
+    return '<div class="px-4 py-8 text-center text-slate-400">אין תוצאות</div>';
+  if (!products.length)
+    return '<div class="px-4 py-8 text-center text-slate-400">בחר לקוח או הקלד שם לחיפוש</div>';
+
+  return products.slice(0,120).map(p => {
+    const already = inOrder.has(p.id);
+    return `
+    <div class="flex items-center gap-3 px-4 py-3.5 border-b border-slate-100 ${already?'opacity-40':'cursor-pointer row-hover'}"
+         ${already?'':` onclick="openProductDetail('${p.id}')"`}>
+      <div class="flex-1 min-w-0">
+        <div class="font-medium text-slate-800 leading-tight">${p.name}</div>
+        <div class="text-xs text-slate-400 mt-0.5">${p.customer} · #${p.id}</div>
+      </div>
+      ${already ? `<span class="text-xs text-slate-400 shrink-0">כבר בהזמנה</span>` :
+                  `<span class="text-indigo-500 text-sm shrink-0">בחר →</span>`}
+    </div>`;
+  }).join('');
+}
+
+async function loadPickerProducts() {
+  const {customer, q} = state.picker;
+  const results = await api('GET',
+    `/api/products?customer=${encodeURIComponent(customer)}&q=${encodeURIComponent(q)}`);
+  state.picker.results = results;
+  const el = document.getElementById('picker-list');
+  if (el) {
+    const inOrder = new Set((state.currentOrder?.products||[]).map(p=>p.product_id));
+    el.innerHTML = renderPickerList(results, inOrder);
+  }
+}
+
+// ─── Product Detail (BOM view) ────────────────────────────────────────────────
+async function openProductDetail(productId) {
+  try {
+    const data = await api('GET', `/api/products/${productId}/bom`);
+    // Check if product already in order
+    const existing = state.currentOrder?.products?.find(p=>p.product_id===productId);
+    state.productDetail = {
+      product: data.product,
+      bom: data.bom,
+      quantity: existing ? existing.quantity : 1,
+      overrides: {},
+    };
+    state.productDetailMode = existing ? 'edit' : 'new';
+    state.view = 'product-detail';
+    render();
+  } catch(err) { toast(err.message,'err'); }
+}
+
+function calcBomRow(baseQty, qty, rounding, overrides, cid) {
+  const raw = baseQty * qty;
+  const rounded = rounding ? Math.ceil(raw / rounding) * rounding : raw;
+  return overrides[cid] !== undefined ? overrides[cid] : rounded;
+}
+
+function renderProductDetail() {
+  const { product, bom, quantity, overrides } = state.productDetail;
+  if (!product) return '';
+  const isEdit = state.productDetailMode === 'edit';
+
+  let bomHtml = '', lastType = null;
+  for (const row of bom) {
+    if (row.component_type !== lastType) {
+      lastType = row.component_type;
+      bomHtml += `<div class="px-4 pt-3 pb-1 section-header">${typeLabel(row.component_type)}</div>`;
+    }
+    const finalQty = calcBomRow(row.base_quantity, quantity, row.rounding, overrides, row.component_id);
+    const isManual = row.component_type === 'בד';
+    const isOverridden = overrides[row.component_id] !== undefined;
+    const step = row.rounding || 1;
+
+    bomHtml += `
+    <div class="flex items-center gap-2 px-4 py-2.5 border-b border-slate-50 row-hover text-sm">
+      <span class="type-badge type-${row.component_type} shrink-0">${row.component_type}</span>
+      <div class="flex-1 min-w-0">
+        <div class="text-slate-800">${row.component_name}</div>
+        <div class="text-xs text-slate-400">#${row.component_id} · בסיס: ${fmt(row.base_quantity)} ליחידה</div>
+      </div>
+      ${isManual ? `
+        <input type="text" placeholder="הזן ידנית"
+          value="${escHtml(overrides[row.component_id]||'')}"
+          oninput="state.productDetail.overrides['${row.component_id}']=this.value;render()"
+          style="width:110px;font-size:.82rem">
+      ` : `
+        <div class="flex items-center gap-1 shrink-0">
+          <button class="qty-btn" onclick="detailNudge('${row.component_id}',${finalQty},${step},-1)">−</button>
+          <span class="${isOverridden?'text-amber-600 font-bold':'text-slate-800 font-semibold'} px-1">${fmt(finalQty)}</span>
+          <button class="qty-btn" onclick="detailNudge('${row.component_id}',${finalQty},${step},1)">+</button>
+          ${isOverridden ? `<button class="text-xs text-slate-400 hover:text-slate-600 px-1" onclick="detailReset('${row.component_id}')" title="איפוס">↺</button>` : ''}
+          ${row.unit ? `<span class="text-xs text-slate-400">${row.unit}</span>` : ''}
+        </div>
+      `}
+    </div>`;
+  }
+
+  return `
+  <div class="flex items-center gap-2 mb-4">
+    <button onclick="state.view='product-picker';render()" class="text-slate-400 hover:text-slate-600 text-sm">← חזרה לרשימה</button>
+  </div>
+  <div class="card">
+    <div class="px-4 py-4 border-b border-slate-100">
+      <div class="font-bold text-slate-800 text-base mb-0.5">${product.name}</div>
+      <div class="text-xs text-slate-500">${product.customer} · #${product.id}</div>
+    </div>
+
+    <!-- quantity -->
+    <div class="px-4 py-4 border-b border-slate-200 bg-indigo-50">
+      <div class="section-header mb-2">כמות לייצור (יחידות מוצר מוגמר)</div>
+      <div class="flex items-center gap-3">
+        <button class="qty-btn w-10 h-10 text-lg" onclick="detailSetQty(${quantity}-1)">−</button>
+        <input type="number" min="1" value="${quantity}" id="detail-qty-input"
+          onkeydown="if(event.key==='Enter'){var v=+this.value;if(v>=1)detailSetQty(v);}"
+          onblur="var v=+this.value;if(v>=1)detailSetQty(v);"
+          style="width:80px;font-size:1.2rem;font-weight:700;text-align:center;">
+        <button class="qty-btn w-10 h-10 text-lg" onclick="detailSetQty(${quantity}+1)">+</button>
+        <span class="text-sm text-slate-500">יח'</span>
+      </div>
+    </div>
+
+    <!-- BOM -->
+    <div class="px-4 py-2 border-b border-slate-200">
+      <div class="section-header py-2">חומרי גלם נדרשים</div>
+    </div>
+    ${bom.length===0 ? '<div class="px-4 py-6 text-center text-slate-400 text-sm">אין עץ מוצר</div>' : bomHtml}
+
+    <div class="px-4 py-4 flex justify-end gap-3">
+      <button onclick="state.view='product-picker';render()" class="btn-secondary">ביטול</button>
+      <button onclick="addProductFromDetail()" class="btn-primary">
+        ${isEdit ? 'עדכן בהזמנה' : 'הוסף להזמנה'}
+      </button>
+    </div>
+  </div>`;
+}
+
+function detailSetQty(n) {
+  if (n < 1) return;
+  state.productDetail.quantity = n;
+  // reset overrides when qty changes (so user sees fresh auto-calc)
+  state.productDetail.overrides = {};
+  render();
+}
+
+function detailNudge(cid, current, step, dir) {
+  const newVal = Math.max(0, current + dir * step);
+  state.productDetail.overrides[cid] = newVal;
+  render();
+}
+
+function detailReset(cid) {
+  delete state.productDetail.overrides[cid];
+  render();
+}
+
+async function addProductFromDetail() {
+  const { product, bom, quantity, overrides } = state.productDetail;
+  try {
+    // Add/update product quantity
+    state.currentOrder = await api('POST', `/api/orders/${state.currentOrder.id}/products`,
+      {product_id: product.id, quantity});
+
+    // Apply any overrides as adjustments
+    for (const [cid, val] of Object.entries(overrides)) {
+      if (typeof val === 'number') {
+        await api('PUT', `/api/orders/${state.currentOrder.id}/adjustments`,
+          {component_id: cid, quantity_adjusted: val});
+      } else if (typeof val === 'string') {
+        await api('PUT', `/api/orders/${state.currentOrder.id}/adjustments`,
+          {component_id: cid, manual_note: val});
+      }
+    }
+    // Refresh order
+    state.currentOrder = await api('GET', `/api/orders/${state.currentOrder.id}`);
+    toast(state.productDetailMode==='edit' ? 'מוצר עודכן' : 'מוצר נוסף');
+    state.view = 'order-editor';
+    render();
+  } catch(err) { toast(err.message,'err'); }
+}
+
+// ─── Free Items Modal ─────────────────────────────────────────────────────────
+function openFreeModal(id=null, name='', qty=1, unit='יח\'', cat='מוצרי אריזה', note='') {
+  state.freeModal = { open:true, name, quantity:qty, unit, category:cat, note, editId:id };
+  render();
+}
+
+function renderFreeModal() {
+  const m = state.freeModal;
+  const presets = ['שרינק','סלוטייפ','גומיות','ניילון גלילים','ריצפה'];
+  return `
+  <div class="modal-back" onclick="if(event.target===this)closeFreeModal()">
+    <div class="modal-box" style="max-width:440px">
+      <div class="modal-header">
+        <span class="font-bold text-slate-800">${m.editId ? 'עריכת פריט' : 'הוסף פריט כללי'}</span>
+        <button onclick="closeFreeModal()" class="text-slate-400 hover:text-slate-600 text-2xl leading-none">×</button>
+      </div>
+      <div class="modal-body space-y-3">
+        <div>
+          <div class="section-header mb-1">חיפוש לפי מקט (אופציונלי)</div>
+          <div class="flex gap-2">
+            <input type="text" id="fi-sku" placeholder="הזן מקט..." style="width:130px"
+              oninput="state.freeModal._sku=this.value">
+            <button class="btn-secondary btn-sm" onclick="lookupSku()">חפש</button>
+          </div>
+          <div id="fi-sku-result" class="text-xs text-indigo-600 mt-1 min-h-4"></div>
+        </div>
+        <div>
+          <div class="section-header mb-1">שם פריט</div>
+          <input type="text" id="fi-name" value="${escHtml(m.name)}" placeholder="הקלד שם פריט..."
+            oninput="state.freeModal.name=this.value" class="w-full">
+          <div class="flex flex-wrap gap-1 mt-2">
+            ${presets.map(p=>`<button class="text-xs px-2 py-1 rounded-md border border-slate-200 hover:bg-slate-100"
+              onclick="document.getElementById('fi-name').value='${p}';state.freeModal.name='${p}'">${p}</button>`).join('')}
+          </div>
+        </div>
+        <div class="flex gap-2">
+          <div class="flex-1">
+            <div class="section-header mb-1">כמות</div>
+            <input type="number" min="0.01" step="any" value="${m.quantity}"
+              oninput="state.freeModal.quantity=+this.value" class="w-full">
+          </div>
+          <div class="flex-1">
+            <div class="section-header mb-1">יחידה</div>
+            <select oninput="state.freeModal.unit=this.value" class="w-full">
+              ${["יח'","ק\"ג","מטר","גליל","קרטון","חבילה"].map(u=>`<option ${u===m.unit?'selected':''}>${u}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        <div>
+          <div class="section-header mb-1">הערה (אופציונלי)</div>
+          <input type="text" value="${escHtml(m.note)}" placeholder="הערה נוספת..."
+            oninput="state.freeModal.note=this.value" class="w-full">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button onclick="closeFreeModal()" class="btn-secondary">ביטול</button>
+        <button onclick="saveFreeItem()" class="btn-primary">שמור</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function closeFreeModal() { state.freeModal.open=false; render(); }
+
+async function lookupSku() {
+  const sku = (state.freeModal._sku || document.getElementById('fi-sku')?.value || '').trim();
+  if (!sku) return;
+  const resultEl = document.getElementById('fi-sku-result');
+  if (resultEl) resultEl.textContent = 'מחפש...';
+  try {
+    // Search components first (raw materials), then products
+    const [comps, prods] = await Promise.all([
+      api('GET', `/api/components?q=${encodeURIComponent(sku)}`),
+      api('GET', `/api/products?q=${encodeURIComponent(sku)}`)
+    ]);
+    const exactComp = comps.find(c => c.id === sku);
+    const exactProd = prods.find(p => p.id === sku);
+    const hit = exactComp || exactProd || comps[0] || prods[0];
+    if (hit) {
+      const nameEl = document.getElementById('fi-name');
+      if (nameEl) nameEl.value = hit.name;
+      state.freeModal.name = hit.name;
+      if (resultEl) resultEl.textContent = '✓ ' + hit.name;
+    } else {
+      if (resultEl) resultEl.textContent = 'מקט לא נמצא';
+    }
+  } catch(e) {
+    if (resultEl) resultEl.textContent = 'שגיאה בחיפוש';
+  }
+}
+
+async function saveFreeItem() {
+  const { editId, name, quantity, unit, category, note } = state.freeModal;
+  if (!name.trim()) { toast('חסר שם פריט','err'); return; }
+  try {
+    const body = {name: name.trim(), quantity, unit, category, note};
+    if (editId) {
+      state.currentOrder = await api('PUT', `/api/orders/${state.currentOrder.id}/free-items/${editId}`, body);
+    } else {
+      state.currentOrder = await api('POST', `/api/orders/${state.currentOrder.id}/free-items`, body);
+    }
+    state.freeModal.open = false;
+    toast('פריט נשמר');
+    render();
+  } catch(err) { toast(err.message,'err'); }
+}
+
+async function deleteFreeItem(itemId) {
+  if (!confirm('למחוק פריט זה?')) return;
+  try {
+    state.currentOrder = await api('DELETE', `/api/orders/${state.currentOrder.id}/free-items/${itemId}`);
+    render();
+  } catch(err) { toast(err.message,'err'); }
+}
+
+// ─── Close Order Modal ────────────────────────────────────────────────────────
+function openCloseModal() {
+  const sent = {};
+  for (const c of state.currentOrder.components) {
+    if (!c.is_manual) sent[c.component_id] = c.quantity_final;
+  }
+  state.closeModal = { open:true, sent };
+  render();
+}
+
+function renderCloseModal() {
+  const o = state.currentOrder;
+  const comps = o.components.filter(c=>!c.is_manual);
+  let lastType = null, rows = '';
+  for (const c of comps) {
+    if (c.component_type !== lastType) {
+      lastType = c.component_type;
+      rows += `<div class="section-header py-2">${typeLabel(c.component_type)}</div>`;
+    }
+    const val = state.closeModal.sent[c.component_id] ?? c.quantity_final;
+    rows += `
+    <div class="flex items-center gap-3 py-2.5 border-b border-slate-100">
+      <div class="flex-1 min-w-0">
+        <div class="text-sm text-slate-700">${c.component_name}</div>
+        <div class="text-xs text-slate-400">מבוקש: ${fmt(c.quantity_final)}</div>
+      </div>
+      <input type="number" min="0" value="${val}"
+        oninput="state.closeModal.sent['${c.component_id}']=+this.value||0"
+        style="width:80px">
+      ${c.unit?`<span class="text-xs text-slate-400 w-8">${c.unit}</span>`:'<span class="w-8"></span>'}
+    </div>`;
+  }
+  // free items section
+  if (o.free_items && o.free_items.length) {
+    rows += `<div class="section-header py-2 mt-2">מוצרי אריזה ופריטים כלליים</div>`;
+    for (const fi of o.free_items) {
+      rows += `
+      <div class="flex items-center gap-2 py-2 border-b border-slate-100 text-sm">
+        <div class="flex-1">${fi.name}</div>
+        <span class="font-semibold">${fmt(fi.quantity)} ${fi.unit||''}</span>
+      </div>`;
+    }
+  }
+
+  return `
+  <div class="modal-back" onclick="if(event.target===this)state.closeModal.open=false;render()">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span class="font-bold text-slate-800">סגירת הזמנה #${o.order_number}</span>
+        <button onclick="state.closeModal.open=false;render()" class="text-slate-400 hover:text-slate-600 text-2xl leading-none">×</button>
+      </div>
+      <div class="modal-body">
+        <p class="text-sm text-slate-600 mb-4">הזן כמויות שנשלחו בפועל. ניתן להזין יותר או פחות מהמבוקש.</p>
+        ${rows}
+      </div>
+      <div class="modal-footer">
+        <button onclick="state.closeModal.open=false;render()" class="btn-secondary">ביטול</button>
+        <button onclick="submitClose()" class="btn-primary">סגור הזמנה</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+async function submitClose() {
+  const sent = Object.entries(state.closeModal.sent).map(([component_id,quantity_sent])=>({component_id,quantity_sent}));
+  try {
+    state.currentOrder = await api('POST', `/api/orders/${state.currentOrder.id}/close`, {sent});
+    state.closeModal.open = false;
+    toast('הזמנה נסגרה');
+    render();
+    const carryover = await api('GET', `/api/orders/${state.currentOrder.id}/carryover`);
+    if (carryover?.length > 0) {
+      if (confirm(`${carryover.length} פריטים לא נשלחו במלואם. להעביר שארית להזמנה חדשה?`)) {
+        const sub = state.subcontractors.find(s=>s.id===state.currentOrder.subcontractor_id)
+                  || {id:state.currentOrder.subcontractor_id};
+        state.currentOrder = await api('POST', `/api/orders/${state.currentOrder.id}/carryover`,
+          {subcontractor_id: sub.id});
+        toast('הזמנה חדשה עם השארית נוצרה');
+        render();
+      }
+    }
+  } catch(err) { toast(err.message,'err'); }
+}
+
+// ─── History ──────────────────────────────────────────────────────────────────
+async function loadHistory() {
+  state.orderList = await api('GET','/api/orders');
+}
+
+function renderHistory() {
+  if (!state.orderList.length)
+    return '<div class="card p-8 text-center text-slate-400">אין היסטוריה</div>';
+  return `
+  <h2 class="text-lg font-bold text-slate-800 mb-4">היסטוריית הזמנות</h2>
+  <div class="card overflow-hidden">
+    <table class="w-full text-sm">
+      <thead><tr class="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold">
+        <th class="px-4 py-3 text-right">מספר</th>
+        <th class="px-4 py-3 text-right">קבלן</th>
+        <th class="px-4 py-3 text-right hide-mobile">תאריך</th>
+        <th class="px-4 py-3 text-right">סטטוס</th>
+        <th class="px-4 py-3"></th>
+      </tr></thead>
+      <tbody>
+        ${state.orderList.map(o=>`
+        <tr class="border-b border-slate-100 row-hover">
+          <td class="px-4 py-3 font-mono font-semibold">#${o.order_number}</td>
+          <td class="px-4 py-3 text-slate-700">${o.sub_name}</td>
+          <td class="px-4 py-3 text-slate-500 hide-mobile">${fmtDate(o.created_at)}</td>
+          <td class="px-4 py-3"><span class="badge status-${o.status}">${{open:'פתוח',locked:'נעול',closed:'סגור'}[o.status]}</span></td>
+          <td class="px-4 py-3 text-left"><button onclick="viewHistoryOrder(${o.id})" class="text-indigo-500 hover:underline text-xs">פתח</button></td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>`;
+}
+
+async function viewHistoryOrder(id) {
+  state.currentOrder = await api('GET',`/api/orders/${id}`);
+  state.view = 'order-editor';
+  render();
+}
+
+// ─── Warehouse ────────────────────────────────────────────────────────────────
+async function loadWhOrders() {
+  const [locked, open] = await Promise.all([
+    api('GET','/api/orders?status=locked'),
+    api('GET','/api/orders?status=open'),
+  ]);
+  state.orderList = [...locked, ...open];
+}
+
+function renderWhOrders() {
+  return `
+  <h2 class="text-lg font-bold text-slate-800 mb-4">הזמנות לליקוט</h2>
+  ${!state.orderList.length ? '<div class="card p-8 text-center text-slate-400">אין הזמנות ממתינות</div>' : ''}
+  <div class="space-y-3">
+    ${state.orderList.map(o=>`
+    <div class="card p-4 cursor-pointer hover:shadow-md transition-shadow" onclick="openWhOrder(${o.id})">
+      <div class="flex items-center justify-between">
+        <div>
+          <div class="font-bold text-slate-800">הזמנה #${o.order_number}</div>
+          <div class="text-sm text-slate-500">${o.sub_name} · ${fmtDate(o.created_at)}</div>
+        </div>
+        <span class="badge status-${o.status}">${{open:'פתוח',locked:'נעול'}[o.status]||o.status}</span>
+      </div>
+    </div>`).join('')}
+  </div>`;
+}
+
+async function openWhOrder(id) {
+  state.currentOrder = await api('GET', `/api/orders/${id}`);
+  state.whSortMode = 'type';
+  state.view = 'wh-order-detail';
+  render();
+}
+
+function renderWhOrderDetail() {
+  const o = state.currentOrder;
+  const isOpen = o.status === 'open';
+  const comps = [...o.components];
+  if (state.whSortMode === 'code') comps.sort((a,b)=>String(a.component_id).localeCompare(String(b.component_id)));
+
+  let lastType = null, rows = '';
+  for (const c of comps) {
+    if (state.whSortMode==='type' && c.component_type !== lastType) {
+      lastType = c.component_type;
+      rows += `<div class="px-4 pt-4 pb-1 section-header">${typeLabel(c.component_type)}</div>`;
+    }
+    rows += `
+    <div class="flex items-center gap-3 px-4 py-3 border-b border-slate-100 row-hover">
+      <span class="type-badge type-${c.component_type} shrink-0">${c.component_type}</span>
+      <div class="flex-1 min-w-0">
+        <div class="text-sm text-slate-800">${c.component_name}</div>
+        <div class="text-xs text-slate-400">#${c.component_id}</div>
+      </div>
+      <div class="text-left shrink-0">
+        ${c.is_manual
+          ? `<span class="text-sm text-purple-700 font-medium">${c.manual_note||'—'}</span>`
+          : `<span class="text-base font-bold text-slate-800">${fmt(c.quantity_final)}</span>${c.unit?` <span class="text-xs text-slate-400">${c.unit}</span>`:''}`}
+      </div>
+    </div>`;
+  }
+
+  // free items section
+  if (o.free_items?.length) {
+    rows += `<div class="px-4 pt-4 pb-1 section-header">מוצרי אריזה ופריטים כלליים</div>`;
+    for (const fi of o.free_items) {
+      rows += `
+      <div class="flex items-center gap-3 px-4 py-3 border-b border-slate-100">
+        <span class="type-badge type-אחר shrink-0">אריזה</span>
+        <div class="flex-1 text-sm text-slate-800">${fi.name}${fi.note?` · <span class="text-slate-400">${fi.note}</span>`:''}</div>
+        <span class="font-bold text-slate-800">${fmt(fi.quantity)} ${fi.unit||''}</span>
+      </div>`;
+    }
+  }
+
+  return `
+  <div class="flex items-center gap-2 mb-4 flex-wrap">
+    <button onclick="go('wh-orders')" class="text-slate-400 hover:text-slate-600 text-sm">← חזרה</button>
+    <div class="flex-1">
+      <span class="font-bold text-slate-800">הזמנה #${o.order_number}</span>
+      <span class="text-slate-400 mx-1">·</span>
+      <span class="text-slate-600">${o.sub_name}</span>
+    </div>
+    <span class="badge status-${o.status}">${{open:'פתוח',locked:'נעול',closed:'סגור'}[o.status]}</span>
+  </div>
+
+  <div class="card mb-4">
+    <div class="flex gap-2 px-3 py-2.5 border-b border-slate-100">
+      <button onclick="state.whSortMode='type';render()" class="btn-sm ${state.whSortMode==='type'?'bg-indigo-100 text-indigo-700':'bg-slate-100 text-slate-600'}">לפי סוג</button>
+      <button onclick="state.whSortMode='code';render()" class="btn-sm ${state.whSortMode==='code'?'bg-indigo-100 text-indigo-700':'bg-slate-100 text-slate-600'}">לפי מקט</button>
+    </div>
+    ${rows || '<div class="px-4 py-6 text-center text-slate-400 text-sm">אין פריטים</div>'}
+  </div>
+
+  ${isOpen ? `
+  <div class="card p-4 bg-amber-50 border border-amber-200">
+    <div class="font-semibold text-amber-800 mb-2">נעל הזמנה לליקוט</div>
+    <p class="text-sm text-amber-700 mb-3">לאחר הנעילה לא ניתן להוסיף פריטים למנהלת התפי.</p>
+    <button onclick="whLock()" class="btn-primary">נעל הזמנה</button>
+  </div>
+  ` : o.status==='locked' ? `
+  <div class="card p-4 bg-green-50 border border-green-200 text-green-800 text-sm font-semibold">✓ הזמנה נעולה — בתהליך ליקוט</div>
+  ` : ''}`;
+}
+
+async function whLock() {
+  if (!confirm('לנעול הזמנה?')) return;
+  try {
+    state.currentOrder = await api('POST', `/api/orders/${state.currentOrder.id}/lock`);
+    await loadWhOrders();
+    toast('הזמנה נעולה');
+    render();
+  } catch(err) { toast(err.message,'err'); }
+}
+
+// ─── Utils ────────────────────────────────────────────────────────────────────
+function fmt(n) {
+  if (n===null||n===undefined) return '—';
+  const num = parseFloat(n);
+  return Number.isInteger(num) ? num.toString() : parseFloat(num.toFixed(3)).toString();
+}
+function fmtDate(s) {
+  if (!s) return '';
+  return String(s).replace('T',' ').substring(0,16);
+}
+function typeLabel(t) {
+  return {
+    קרטון:'קרטונים', מדבקה:'מדבקות', קרטוניות:'תוויות / חבקים / קופסאות',
+    שקית:'שקיות ניילון', ספוג:'ספוגים', מייקרופייבר:'מייקרופייבר (ללא תווית)',
+    כרית:'כריות', גלילים:'גלילים (ק"ג)', בד:'בד — הזנה ידנית', אחר:'אחר'
+  }[t] || t;
+}
+function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+function escJs(s)   { return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+render();
+</script>
+</body>
+</html>
