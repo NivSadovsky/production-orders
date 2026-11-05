@@ -288,14 +288,30 @@ function renderNav() {
     ? [['dashboard','הזמנות'],['history','היסטוריה']]
     : [['wh-orders','הזמנות'],['history','היסטוריה']];
   return `
-  <header class="bg-white border-b border-slate-200 px-4 py-2.5 flex items-center justify-between sticky top-0 z-40">
-    <div class="flex items-center gap-2">
-      <div class="w-7 h-7 rounded-full bg-indigo-600 text-white text-xs font-bold flex items-center justify-center">${state.user.name[0]}</div>
-      <span class="font-semibold text-sm text-slate-700">${state.user.name}</span>
+  <header class="sticky top-0 z-40" style="background:rgba(8,18,36,0.94);border-bottom:1px solid rgba(255,255,255,.1);backdrop-filter:blur(16px);">
+    <!-- Logo row -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px 8px;border-bottom:1px solid rgba(255,255,255,.06);">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <img src="https://sadovsky-container-planer.up.railway.app/static/logo.png"
+             onerror="this.style.display='none'"
+             style="height:28px;width:auto;object-fit:contain;" alt="סדובסקי">
+        <div style="display:flex;align-items:baseline;gap:7px;">
+          <span style="font-size:1rem;font-weight:800;letter-spacing:-.02em;color:#ddeaff;">סדובסקי</span>
+          <span style="font-size:.7rem;font-weight:700;color:#4a90e8;background:rgba(74,144,232,.14);border:1px solid rgba(74,144,232,.3);border-radius:5px;padding:1px 6px;line-height:1.5;">בע"מ</span>
+          <span style="font-size:.78rem;color:#4d6b8e;padding-right:4px;border-right:1px solid rgba(255,255,255,.1);margin-right:2px;">הזמנות ייצור</span>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <div style="width:26px;height:26px;border-radius:50%;background:rgba(74,144,232,.2);border:1px solid rgba(74,144,232,.35);color:#93c5fd;font-size:.72rem;font-weight:700;display:flex;align-items:center;justify-content:center;">${state.user.name[0]}</div>
+        <span style="font-size:.8rem;font-weight:600;color:#8aaed0;">${state.user.name}</span>
+      </div>
     </div>
-    <nav class="flex gap-1">
-      ${links.map(([v,label])=>`<button onclick="go('${v}')" class="text-sm px-3 py-1.5 rounded-lg font-medium transition-colors ${state.view===v||state.view.startsWith(v.replace('-orders',''))?'bg-indigo-50 text-indigo-700':'text-slate-500 hover:bg-slate-100'}">${label}</button>`).join('')}
-      <button onclick="logout()" class="text-xs text-slate-400 hover:text-red-400 px-2 mr-1">יציאה</button>
+    <!-- Nav row -->
+    <nav style="display:flex;align-items:center;justify-content:space-between;padding:4px 12px 4px;">
+      <div style="display:flex;gap:2px;">
+        ${links.map(([v,label])=>`<button onclick="go('${v}')" style="font-size:.82rem;padding:5px 12px;border-radius:7px;border:none;cursor:pointer;font-weight:600;transition:background .15s;background:${state.view===v||state.view.startsWith(v.replace('-orders',''))?'rgba(74,144,232,.18)':'transparent'};color:${state.view===v||state.view.startsWith(v.replace('-orders',''))?'#93c5fd':'#4d6b8e'};">${label}</button>`).join('')}
+      </div>
+      <button onclick="logout()" style="font-size:.75rem;color:#3a5470;background:none;border:none;cursor:pointer;padding:4px 6px;" onmouseover="this.style.color='#f87171'" onmouseout="this.style.color='#3a5470'">יציאה</button>
     </nav>
   </header>`;
 }
