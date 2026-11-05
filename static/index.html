@@ -6,46 +6,201 @@
 <title>בונה הזמנות ייצור</title>
 <script src="https://cdn.tailwindcss.com/3.4.1"></script>
 <style>
-  body { font-family: 'Segoe UI', Arial, sans-serif; background: #f1f5f9; }
-  .status-open    { background:#dcfce7; color:#166534; border:1px solid #86efac; }
-  .status-locked  { background:#fef9c3; color:#854d0e; border:1px solid #fde047; }
-  .status-closed  { background:#f1f5f9; color:#475569; border:1px solid #cbd5e1; }
-  .badge { display:inline-block; padding:2px 10px; border-radius:999px; font-size:.78rem; font-weight:600; }
-  .btn-primary   { background:#4f46e5; color:#fff; border-radius:8px; padding:8px 18px; font-weight:600; cursor:pointer; border:none; transition:background .15s; }
-  .btn-primary:hover   { background:#4338ca; }
-  .btn-secondary { background:#e2e8f0; color:#334155; border-radius:8px; padding:8px 18px; font-weight:600; cursor:pointer; border:none; }
-  .btn-secondary:hover { background:#cbd5e1; }
-  .btn-sm        { padding:4px 12px; font-size:.82rem; border-radius:6px; cursor:pointer; border:none; font-weight:600; }
-  .btn-ghost     { background:transparent; color:#6366f1; font-weight:600; cursor:pointer; border:none; font-size:.9rem; }
-  .btn-ghost:hover { text-decoration:underline; }
-  .card { background:#fff; border-radius:12px; box-shadow:0 1px 4px rgba(0,0,0,.08); }
-  input, select, textarea { border:1px solid #cbd5e1; border-radius:8px; padding:6px 10px; font-size:.95rem; outline:none; transition:border .15s; background:#fff; }
-  input:focus, select:focus { border-color:#6366f1; box-shadow:0 0 0 3px #e0e7ff; }
-  input[type=number] { width:80px; text-align:center; }
-  .section-header { font-size:.7rem; font-weight:700; color:#94a3b8; text-transform:uppercase; letter-spacing:.07em; }
-  .type-badge { font-size:.68rem; font-weight:700; padding:1px 7px; border-radius:999px; white-space:nowrap; }
-  .type-קרטון       { background:#dbeafe; color:#1e40af; }
-  .type-מדבקה       { background:#fce7f3; color:#9d174d; }
-  .type-קרטוניות    { background:#ede9fe; color:#5b21b6; }
-  .type-שקית        { background:#e0f2fe; color:#075985; }
-  .type-ספוג        { background:#dcfce7; color:#166534; }
-  .type-מייקרופייבר { background:#f0fdf4; color:#14532d; }
-  .type-כרית        { background:#fef3c7; color:#92400e; }
-  .type-גלילים      { background:#fff7ed; color:#9a3412; }
-  .type-בד          { background:#f5f3ff; color:#4c1d95; }
-  .type-אחר         { background:#f1f5f9; color:#475569; }
-  .row-hover:hover  { background:#f8fafc; }
-  .modal-back { position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:50;display:flex;align-items:center;justify-content:center;padding:16px; }
-  .modal-box  { background:#fff;border-radius:16px;max-width:620px;width:100%;max-height:90vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.25); }
-  .modal-header { padding:16px 20px; border-bottom:1px solid #e2e8f0; display:flex; align-items:center; justify-content:space-between; flex-shrink:0; }
-  .modal-body   { padding:20px; overflow-y:auto; flex:1; }
-  .modal-footer { padding:12px 20px; border-top:1px solid #e2e8f0; display:flex; justify-content:flex-end; gap:8px; flex-shrink:0; }
-  .qty-btn { width:28px;height:28px;border-radius:6px;border:1px solid #cbd5e1;background:#f8fafc;cursor:pointer;font-size:1rem;line-height:1;display:flex;align-items:center;justify-content:center; }
-  .qty-btn:hover { background:#e2e8f0; }
+  /* ─── Design tokens: Sadovsky dark navy ─── */
+  :root {
+    --accent: #4a90e8;
+    --accent-hover: #3a7bd8;
+    --accent-glow: rgba(74,144,232,0.35);
+    --accent-bg: rgba(74,144,232,0.12);
+    --text: #ddeaff;
+    --text-soft: #8aaed0;
+    --text-muted: #4d6b8e;
+    --card-bg: rgba(255,255,255,0.055);
+    --card-border: rgba(255,255,255,0.1);
+    --card-shadow: 0 4px 24px rgba(0,0,0,0.35);
+    --input-bg: rgba(255,255,255,0.06);
+    --input-border: rgba(255,255,255,0.14);
+    --row-hover: rgba(255,255,255,0.04);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+
+  html { background: #071020; }
+
+  body {
+    font-family: 'Segoe UI', system-ui, Arial, sans-serif;
+    background: linear-gradient(145deg, #0e1f3f 0%, #0a1628 55%, #071020 100%);
+    background-attachment: fixed;
+    min-height: 100vh;
+    color: var(--text);
+  }
+
+  /* ─── Tailwind color overrides ─── */
+  .text-slate-900,.text-slate-800,.text-slate-700 { color: var(--text) !important; }
+  .text-slate-600 { color: #a8c4de !important; }
+  .text-slate-500,.text-slate-400 { color: var(--text-soft) !important; }
+  .text-slate-300 { color: #9ab4cf !important; }
+  .text-indigo-600,.text-indigo-700 { color: #7ab8f5 !important; }
+  .text-indigo-500,.text-indigo-400 { color: #93c5fd !important; }
+  .text-amber-600 { color: #fcd34d !important; }
+  .text-amber-700 { color: #fde68a !important; }
+  .text-amber-800 { color: #fef08a !important; }
+  .text-green-800 { color: #86efac !important; }
+  .text-red-300   { color: rgba(252,165,165,.7) !important; }
+  .text-red-400,.text-red-500 { color: #f87171 !important; }
+  .text-purple-700 { color: #c4b5fd !important; }
+
+  .bg-white { background: var(--card-bg) !important; backdrop-filter: blur(12px); }
+  .bg-slate-50 { background: rgba(255,255,255,0.03) !important; }
+  .bg-slate-100 { background: rgba(255,255,255,0.055) !important; }
+  .bg-indigo-50  { background: var(--accent-bg) !important; }
+  .bg-indigo-100 { background: rgba(74,144,232,0.15) !important; }
+  .bg-indigo-600 { background: var(--accent) !important; }
+  .bg-amber-50   { background: rgba(234,179,8,0.08) !important; }
+  .bg-green-50   { background: rgba(34,197,94,0.07) !important; }
+
+  .border-slate-100 { border-color: rgba(255,255,255,0.08) !important; }
+  .border-slate-200 { border-color: rgba(255,255,255,0.12) !important; }
+  .border-b-2.border-slate-200 { border-color: rgba(255,255,255,0.14) !important; }
+  .border-amber-200 { border-color: rgba(234,179,8,0.28) !important; }
+  .border-green-200 { border-color: rgba(34,197,94,0.28) !important; }
+
+  .hover\:bg-slate-100:hover { background: rgba(255,255,255,0.08) !important; }
+  .hover\:shadow-md:hover    { box-shadow: 0 4px 24px rgba(0,0,0,.4), 0 0 0 1px rgba(74,144,232,.18) !important; }
+  .hover\:text-slate-600:hover  { color: #c0d4e8 !important; }
+  .hover\:text-indigo-600:hover { color: #60a5fa !important; }
+  .hover\:text-indigo-700:hover { color: #60a5fa !important; }
+  .hover\:text-red-400:hover,.hover\:text-red-500:hover { color: #f87171 !important; }
+
+  /* ─── Core components ─── */
+  .card {
+    background: var(--card-bg);
+    border-radius: 14px;
+    border: 1px solid var(--card-border);
+    box-shadow: var(--card-shadow);
+    backdrop-filter: blur(14px);
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    color: #fff;
+    border-radius: 8px;
+    padding: 8px 18px;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+    transition: background .15s, box-shadow .15s;
+    box-shadow: 0 2px 14px var(--accent-glow);
+  }
+  .btn-primary:hover { background: var(--accent-hover); box-shadow: 0 4px 20px var(--accent-glow); }
+
+  .btn-secondary {
+    background: rgba(255,255,255,0.08);
+    color: #c0d4e8;
+    border-radius: 8px;
+    padding: 8px 18px;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid rgba(255,255,255,0.14);
+    transition: background .15s;
+  }
+  .btn-secondary:hover { background: rgba(255,255,255,0.14); }
+
+  .btn-sm   { padding: 4px 12px; font-size: .82rem; border-radius: 6px; cursor: pointer; border: none; font-weight: 600; }
+  .btn-ghost { background: transparent; color: #7ab8f5; font-weight: 600; cursor: pointer; border: none; font-size: .9rem; }
+  .btn-ghost:hover { text-decoration: underline; }
+
+  input, select, textarea {
+    background: var(--input-bg);
+    border: 1px solid var(--input-border);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: .95rem;
+    outline: none;
+    color: var(--text);
+    transition: border .15s, box-shadow .15s;
+  }
+  input::placeholder, textarea::placeholder { color: rgba(100,150,195,.55); }
+  input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(74,144,232,.2); }
+  select option { background: #0d1b35; color: var(--text); }
+  input[type=number] { width: 80px; text-align: center; }
+
+  .section-header { font-size: .7rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .07em; }
+
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: .78rem; font-weight: 600; }
+  .status-open   { background: rgba(34,197,94,.14);  color: #4ade80; border: 1px solid rgba(34,197,94,.3); }
+  .status-locked { background: rgba(234,179,8,.14);  color: #facc15; border: 1px solid rgba(234,179,8,.3); }
+  .status-closed { background: rgba(100,116,139,.14); color: #94a3b8; border: 1px solid rgba(100,116,139,.3); }
+
+  .type-badge { font-size: .68rem; font-weight: 700; padding: 1px 7px; border-radius: 999px; white-space: nowrap; }
+  .type-קרטון       { background: rgba(59,130,246,.2);  color: #93c5fd; }
+  .type-מדבקה       { background: rgba(236,72,153,.2);  color: #f9a8d4; }
+  .type-קרטוניות    { background: rgba(139,92,246,.2);  color: #c4b5fd; }
+  .type-שקית        { background: rgba(14,165,233,.2);  color: #7dd3fc; }
+  .type-ספוג        { background: rgba(34,197,94,.2);   color: #86efac; }
+  .type-מייקרופייבר { background: rgba(16,185,129,.2);  color: #6ee7b7; }
+  .type-כרית        { background: rgba(245,158,11,.2);  color: #fcd34d; }
+  .type-גלילים      { background: rgba(249,115,22,.2);  color: #fdba74; }
+  .type-בד          { background: rgba(167,139,250,.2); color: #c4b5fd; }
+  .type-אחר         { background: rgba(100,116,139,.2); color: #94a3b8; }
+
+  .row-hover:hover { background: var(--row-hover) !important; }
+
+  .qty-btn {
+    width: 28px; height: 28px;
+    border-radius: 6px;
+    border: 1px solid rgba(255,255,255,0.14);
+    background: rgba(255,255,255,0.06);
+    cursor: pointer; font-size: 1rem; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text);
+  }
+  .qty-btn:hover { background: rgba(255,255,255,0.13); }
+
+  .modal-back {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,.65);
+    z-index: 50;
+    display: flex; align-items: center; justify-content: center;
+    padding: 16px;
+    backdrop-filter: blur(4px);
+  }
+  .modal-box {
+    background: rgba(10,22,42,0.96);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 16px;
+    max-width: 620px; width: 100%; max-height: 90vh;
+    overflow: hidden; display: flex; flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0,0,0,.65);
+    backdrop-filter: blur(16px);
+    color: var(--text);
+  }
+  .modal-header { padding: 16px 20px; border-bottom: 1px solid rgba(255,255,255,.1); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+  .modal-body   { padding: 20px; overflow-y: auto; flex: 1; }
+  .modal-footer { padding: 12px 20px; border-top: 1px solid rgba(255,255,255,.1); display: flex; justify-content: flex-end; gap: 8px; flex-shrink: 0; }
+
+  /* Nav header override */
+  header { background: rgba(8,18,36,0.92) !important; border-color: rgba(255,255,255,.1) !important; backdrop-filter: blur(16px) !important; }
+
+  /* Table */
+  thead tr { background: rgba(255,255,255,.04) !important; }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.14); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.24); }
+
+  /* Selection */
+  ::selection { background: rgba(74,144,232,.35); color: #fff; }
+
+  /* Focus ring */
+  :focus-visible { outline: 2px solid rgba(74,144,232,.5); outline-offset: 2px; }
+
   @media(max-width:640px){
-    .hide-mobile{display:none!important;}
-    .modal-box{border-radius:16px 16px 0 0;max-height:95vh;}
-    .modal-back{align-items:flex-end;padding:0;}
+    .hide-mobile { display: none !important; }
+    .modal-box   { border-radius: 16px 16px 0 0; max-height: 95vh; }
+    .modal-back  { align-items: flex-end; padding: 0; }
   }
 </style>
 </head>
@@ -148,16 +303,24 @@ function renderNav() {
 // ─── Login ────────────────────────────────────────────────────────────────────
 function renderLogin() {
   return `
-  <div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 to-slate-100 p-4">
-    <div class="card p-8 w-full max-w-xs">
-      <div class="text-center mb-6">
-        <div class="w-14 h-14 bg-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4 text-white text-2xl">📋</div>
-        <h1 class="text-xl font-bold text-slate-800">בונה הזמנות ייצור</h1>
+  <div class="min-h-screen flex flex-col items-center justify-center p-4" style="gap:0">
+    <div style="text-align:center;margin-bottom:28px;">
+      <div style="display:inline-flex;align-items:center;gap:8px;margin-bottom:10px;">
+        <span style="font-size:1.6rem;font-weight:800;letter-spacing:-.02em;color:#ddeaff;">סדובסקי</span>
+        <span style="font-size:.85rem;font-weight:700;color:#4a90e8;background:rgba(74,144,232,.14);border:1px solid rgba(74,144,232,.3);border-radius:6px;padding:2px 8px;">בע"מ</span>
       </div>
-      <form onsubmit="doLogin(event)">
-        <input type="password" id="pin" placeholder="קוד כניסה" class="w-full text-center text-xl tracking-widest mb-4" autofocus>
-        <button type="submit" class="btn-primary w-full py-2.5">כניסה</button>
-        <div id="login-err" class="text-red-500 text-sm text-center mt-2 hidden"></div>
+      <div style="font-size:.8rem;color:#4d6b8e;letter-spacing:.04em;">מערכת ניהול הזמנות ייצור</div>
+    </div>
+    <div class="card" style="padding:32px 28px;width:100%;max-width:300px;">
+      <div style="text-align:center;margin-bottom:20px;">
+        <div style="width:52px;height:52px;border-radius:14px;background:rgba(74,144,232,.18);border:1px solid rgba(74,144,232,.3);display:flex;align-items:center;justify-content:center;margin:0 auto 14px;font-size:1.5rem;">📋</div>
+        <div style="font-size:1rem;font-weight:700;color:#ddeaff;">כניסה למערכת</div>
+        <div style="font-size:.78rem;color:#4d6b8e;margin-top:4px;">הזן קוד כניסה</div>
+      </div>
+      <form onsubmit="doLogin(event)" style="display:flex;flex-direction:column;gap:12px;">
+        <input type="password" id="pin" placeholder="••••••••" class="w-full text-center" style="font-size:1.3rem;letter-spacing:.2em;padding:10px;" autofocus>
+        <button type="submit" class="btn-primary w-full" style="padding:11px;">כניסה</button>
+        <div id="login-err" class="text-red-500 text-sm text-center hidden"></div>
       </form>
     </div>
   </div>`;
